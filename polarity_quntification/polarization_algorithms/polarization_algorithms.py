@@ -6,75 +6,32 @@
     Python Version: 3.6
 '''
 import random
-
+from tqdm.auto import tqdm
 import numpy as np
 import networkx as nx
 import scipy.stats
 
 
-def get_influencer_nodes(G, left_nodes, right_nodes, n_influencers):
-    """Returns the k-highest degree nodes for each partition"""
-
-    left_nodes_degrees = {node: G.degree(node) for node in left_nodes}
-    right_nodes_degrees = {node: G.degree(node) for node in right_nodes}
-
-    left_node_degrees_sorted = sorted(left_nodes_degrees.items(), key=lambda kv: kv[1], reverse=True)
-    right_node_degrees_sorted = sorted(right_nodes_degrees.items(), key=lambda kv: kv[1], reverse=True)
-
-    if n_influencers < 1:
-        k_left = max(1, int(n_influencers * len(left_nodes)))
-        k_right = max(1, int(n_influencers * len(right_nodes)))
-    else:
-        k_left = min(n_influencers, len(left_nodes))
-        k_right = min(n_influencers, len(right_nodes))
-
-    left_influencers = [node for (node, _) in left_node_degrees_sorted[:k_left]]
-    right_influencers = [node for (node, _) in right_node_degrees_sorted[:k_right]]
-
-    return left_influencers, right_influencers
-
-
-def perform_random_walk(G, left_influencers, right_influencers, starting_node):
-    """Performs the random walk and returns the ending side of the walk"""
-
-    current_node = starting_node
-    ending_side = 0
-    absorbed = 0
-
-    while not absorbed:
-
-        next_node = random.choice([n for n in G.neighbors(current_node)])
-
-        if next_node in left_influencers:
-            ending_side = "left"
-            absorbed = 1
-        elif next_node in right_influencers:
-            ending_side = "right"
-            absorbed = 1
-        else:
-            current_node = next_node
-
-    return ending_side
-
-
-def random_walk_pol(G, ms, n_influencers, n_sim, n_walks):
+def random_walk_pol(G, ms, n_influencers, n_sim, n_walks, verbos=False):
     """Computes Random Walk Controversy Polarization"""
 
     left_nodes = [node for node in ms if ms[node] == 0]
     right_nodes = [node for node in ms if ms[node] == 1]
 
-    left_influencers, right_influencers = get_influencer_nodes(G, left_nodes, right_nodes, n_influencers)
+    left_influencers, right_influencers = _get_k_highest_degree_nodes(G, left_nodes, right_nodes, n_influencers)
 
     rwc_dist = []
 
-    for _ in range(n_sim):
+    repetitions = range(n_sim) if not verbos else tqdm(range(n_sim), desc='repetitions', total=n_sim)
+    for _ in repetitions:
 
         left_left = 0
         right_left = 0
         left_right = 0
         right_right = 0
 
-        for _ in range(n_walks):
+        random_walk_iterations = range(n_walks) if not verbos else tqdm(range(n_walks), desc='random walk', total=n_walks)
+        for _ in random_walk_iterations:
 
             starting_side = random.choice(["left", "right"])
 
@@ -83,7 +40,7 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks):
             else:
                 which_random_starting_node = random.choice(right_nodes)
 
-            ending_side = perform_random_walk(G, left_influencers, right_influencers, which_random_starting_node)
+            ending_side = _perform_random_walk(G, left_influencers, right_influencers, which_random_starting_node)
 
             if (starting_side == "left") and (ending_side == "left"):
                 left_left += 1
@@ -113,12 +70,12 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks):
     return rwc_ave
 
 
-def krackhardt_ratio_pol(G, ms):
+def krackhardt_ratio_pol(G, ms, verbos=False):
     """Computes EI-Index Polarization"""
     EL = 0
     IL = 0
-
-    for e in G.edges:
+    edge_gen = G.edges if not verbos else tqdm(G.edges, desc='iter edges', total=len(G.edges()))
+    for e in edge_gen:
         s, t = e
 
         if ms[s] != ms[t]:
@@ -129,7 +86,7 @@ def krackhardt_ratio_pol(G, ms):
     return (EL - IL) / (EL + IL)
 
 
-def extended_krackhardt_ratio_pol(G, ms):
+def extended_krackhardt_ratio_pol(G, ms, verbos=False):
     """Computes Extended EI-Index Polarization"""
 
     block_a = [k for k in ms if ms[k] == 0]
@@ -142,7 +99,8 @@ def extended_krackhardt_ratio_pol(G, ms):
     c_b = len(G.subgraph(block_b).edges)
     c_ab = 0
 
-    for e in G.edges:
+    edge_gen = G.edges if not verbos else tqdm(G.edges, desc='iter edges', total=len(G.edges()))
+    for e in edge_gen:
         s, t = e
 
         if ms[s] != ms[t]:
@@ -156,7 +114,7 @@ def extended_krackhardt_ratio_pol(G, ms):
     return -(B_aa + B_bb - B_ab - B_ba) / (B_aa + B_bb + B_ab + B_ba)
 
 
-def betweenness_pol(G, ms):
+def betweenness_pol(G, ms, verbos=False):
     """Computes Betweenness Centrality Controversy Polarization"""
     dict_eb = nx.edge_betweenness_centrality(G, k=int(0.75 * len(G)))
     # n_pivots = min(1000, len(G))
@@ -167,7 +125,8 @@ def betweenness_pol(G, ms):
 
     BCC_dist = []
 
-    for e in G.edges():
+    edge_gen = G.edges if not verbos else tqdm(G.edges, desc='iter edges', total=len(G.edges()))
+    for e in edge_gen:
         s, t = e
 
         if ms[s] != ms[t]:
@@ -203,7 +162,7 @@ def betweenness_pol(G, ms):
     return sum(BCC) / len(BCC)
 
 
-def gmck_pol(G, ms):
+def gmck_pol(G, ms, verbos=False):
     """Computes Boundary Polarization"""
 
     X = set([node for node in ms if ms[node] == 0])
@@ -211,7 +170,8 @@ def gmck_pol(G, ms):
 
     B = []
 
-    for e in G.edges:
+    edge_gen = G.edges if not verbos else tqdm(G.edges, desc='iter edges', total=len(G.edges()))
+    for e in edge_gen:
         s, t = e
 
         if ms[s] != ms[t]:
@@ -266,7 +226,7 @@ def dipole_pol(G, ms):
     left_nodes = [node for node in ms if ms[node] == 0]
     right_nodes = [node for node in ms if ms[node] == 1]
 
-    X_top, Y_top = get_influencer_nodes(G, left_nodes, right_nodes, 0.05)
+    X_top, Y_top = _get_k_highest_degree_nodes(G, left_nodes, right_nodes, 0.05)
 
     X_top = set(X_top)
     Y_top = set(Y_top)
@@ -322,3 +282,49 @@ def dipole_pol(G, ms):
     MBLB = (1 - delta_A) * pole_D
 
     return MBLB
+
+
+def _get_k_highest_degree_nodes(G, left_nodes, right_nodes, n_influencers):
+    """Returns the k-highest degree nodes for each partition"""
+
+    left_nodes_degrees = {node: G.degree(node) for node in left_nodes}
+    right_nodes_degrees = {node: G.degree(node) for node in right_nodes}
+
+    left_node_degrees_sorted = sorted(left_nodes_degrees.items(), key=lambda kv: kv[1], reverse=True)
+    right_node_degrees_sorted = sorted(right_nodes_degrees.items(), key=lambda kv: kv[1], reverse=True)
+
+    if n_influencers < 1:
+        k_left = max(1, int(n_influencers * len(left_nodes)))
+        k_right = max(1, int(n_influencers * len(right_nodes)))
+    else:
+        k_left = min(n_influencers, len(left_nodes))
+        k_right = min(n_influencers, len(right_nodes))
+
+    left_influencers = [node for (node, _) in left_node_degrees_sorted[:k_left]]
+    right_influencers = [node for (node, _) in right_node_degrees_sorted[:k_right]]
+
+    return left_influencers, right_influencers
+
+
+
+def _perform_random_walk(G, left_influencers, right_influencers, starting_node):
+    """Performs the random walk and returns the ending side of the walk"""
+
+    current_node = starting_node
+    ending_side = 0
+    absorbed = 0
+
+    while not absorbed:
+
+        next_node = random.choice([n for n in G.neighbors(current_node)])
+
+        if next_node in left_influencers:
+            ending_side = "left"
+            absorbed = 1
+        elif next_node in right_influencers:
+            ending_side = "right"
+            absorbed = 1
+        else:
+            current_node = next_node
+
+    return ending_side

@@ -1,9 +1,11 @@
 import os
 
+
 os.environ["METIS_DLL"] = "polarity_quntification/dll/metis.dll"
 
+import polarity_quntification.polarization_algorithms.polarization_algorithms as pol
 import networkx as nx
-import polarity_quntification.polarization_algorithms.partition_algorithms as pa
+import polarity_quntification.partition_algorithms.partition_algorithms as pa
 
 
 G = nx.read_gml('data/gml_files/baltimore.gml')
@@ -13,7 +15,7 @@ edge_weight = nx.get_edge_attributes(G, 'weight')
 nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
 
 
-ms_rsc = pa.partition_spectral(G, 3)
+ms_rsc = pa.partition_spectral(G)
 
 T_rsc = [node for node in ms_rsc if ms_rsc[node] == 0]
 S_rsc = [node for node in ms_rsc if ms_rsc[node] == 1]

@@ -79,7 +79,7 @@ def regularized_spectral_clustering(adj_matrix, tau, n_clusters, algo='scan'):
     return labels
 
 
-def evaluate_graph(graph, n_clusters):
+def _evaluate_graph(graph, n_clusters):
     """
     Reconsutrction of [1]Understanding Regularized Spectral Clustering via Graph Conductance, Yilin Zhang, Karl Rohe
 
@@ -101,7 +101,7 @@ def evaluate_graph(graph, n_clusters):
     return labels
 
 
-def mod_partition(G, ms):
+def _mod_partition(G, ms):
     T = set([k for k in ms if ms[k] == 0])
     S = set([k for k in ms if ms[k] == 1])
 
@@ -144,7 +144,7 @@ def mod_partition(G, ms):
 
 def partition_spectral(G):
     n_partitions = 2
-    labels = evaluate_graph(G, n_partitions)
+    labels = _evaluate_graph(G, n_partitions)
     node_membership = dict(zip(G.nodes, labels))
 
     return node_membership
@@ -159,6 +159,6 @@ def partition_metis(G, n_partitions=2, ufac=400):
 
 def partition_maxmod(G):
     initial_ms = partition_metis(G)
-    node_membership = mod_partition(G, initial_ms)
+    node_membership = _mod_partition(G, initial_ms)
 
     return node_membership
