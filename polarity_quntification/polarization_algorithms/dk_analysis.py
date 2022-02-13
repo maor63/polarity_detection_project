@@ -13,7 +13,8 @@ import numpy as np
 import networkx as nx
 import networkx.algorithms.community as nx_comm
 import scipy.stats
-
+import polarity_quntification.polarization_algorithms.polarization_algorithms as pol
+import polarity_quntification.partition_algorithms.partition_algorithms as pa
 # import partition_algorithms as pa
 # import polarization_algorithms as pol
 

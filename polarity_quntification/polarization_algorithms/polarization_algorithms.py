@@ -68,7 +68,8 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks, verbos=False):
     rwc_ave = sum(rwc_dist) / len(rwc_dist)
 
     return rwc_ave
-
+    # 1 max pol
+    # 0 min pol
 
 def krackhardt_ratio_pol(G, ms, verbos=False):
     """Computes EI-Index Polarization"""
@@ -83,7 +84,7 @@ def krackhardt_ratio_pol(G, ms, verbos=False):
         else:
             IL += 1
 
-    return (EL - IL) / (EL + IL)
+    return (EL - IL) / (EL + IL)  # 1 for min polarization and -1 for max polarization
 
 
 def extended_krackhardt_ratio_pol(G, ms, verbos=False):
@@ -112,11 +113,13 @@ def extended_krackhardt_ratio_pol(G, ms, verbos=False):
     B_ba = B_ab
 
     return -(B_aa + B_bb - B_ab - B_ba) / (B_aa + B_bb + B_ab + B_ba)
-
+    # seperate cluster score -1 (max pol)
+    # bipartaite graph score 1 (min pol)
 
 def betweenness_pol(G, ms, verbos=False):
     """Computes Betweenness Centrality Controversy Polarization"""
     dict_eb = nx.edge_betweenness_centrality(G, k=int(0.75 * len(G)))
+    # dict_eb = nx.edge_betweenness_centrality(G, k=int(0.75 * len(G)), weight=G.graph['edge_weight_attr'])
     # n_pivots = min(1000, len(G))
     # dict_eb = nx.edge_betweenness_centrality(G, k=n_pivots)
 
@@ -218,6 +221,8 @@ def gmck_pol(G, ms, verbos=False):
     GMCK = (1 / (len(B) + 0.0001)) * sum(summand)
 
     return GMCK
+    # 1 max pol
+    # 0 min pol
 
 
 def dipole_pol(G, ms):
@@ -282,6 +287,8 @@ def dipole_pol(G, ms):
     MBLB = (1 - delta_A) * pole_D
 
     return MBLB
+    # 1 max pol
+    # 0 min pol
 
 
 def _get_k_highest_degree_nodes(G, left_nodes, right_nodes, n_influencers):
