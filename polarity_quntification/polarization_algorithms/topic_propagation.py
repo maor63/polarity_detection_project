@@ -33,6 +33,9 @@ import random
 from typing import Dict
 from karateclub.estimator import Estimator
 from collections import defaultdict
+from nltk.corpus import stopwords
+STOPWORDS = set(stopwords.words('english'))
+from polarity_quntification.partition_algorithms.partition_algorithms import partition_spectral, partition_metis
 
 
 class LabelPropagation(Estimator):
@@ -50,7 +53,7 @@ class LabelPropagation(Estimator):
         self.seed = seed
         self.iterations = iterations
         self._loudest_neighbor = loudest_neighbor
-
+        
     def _make_a_pick(self, neighbors, weighted):
         """
         Choosing a neighbor from a propagation source node.
@@ -92,7 +95,13 @@ class LabelPropagation(Estimator):
             else:
                 pick = self._labels[node]
             new_labels[node] = pick
+        error = 0
+        for user in self._labels:
+            if self._labels[user] != new_labels[user]:
+                error += 1
+        
         self._labels = new_labels
+        self._error  = error
 
     def fit(self, graph: nx.classes.graph.Graph, init_labels=None, to_undirected=True, weighted=True, in_edges=True):
         """
@@ -101,7 +110,7 @@ class LabelPropagation(Estimator):
         Arg types:
             * **graph** *(NetworkX graph)* - The graph to be clustered.
         """
-        self._set_seed()
+        self._set_seed()        
         #         graph = self._check_graph(graph)
         if to_undirected:
             self._graph = graph.to_undirected()
@@ -114,8 +123,11 @@ class LabelPropagation(Estimator):
         else:
             self._labels = {node: i for i, node in enumerate(self._graph.nodes())}
         random.seed(self.seed)
+        self._error = len(self._nodes)
         for _ in tqdm(range(self.iterations), desc='label propagation iteration'):
             self._do_a_propagation(weighted, in_edges=in_edges)
+            if self._error < 0.01 * len(self._nodes):
+                break
 
     def get_memberships(self):
         r"""Getting the cluster membership of nodes.
@@ -191,6 +203,19 @@ def load_interaction_graph(network_path, network_name):
     G.add_weighted_edges_from(weighted_edges)
     G.remove_edges_from(nx.selfloop_edges(G))
     return G
+    
+
+def topic_community_correlation(label_popagation_partition, topic_diffusion):
+    community_vals = []
+    topic_vals = []
+    for user, topic in topic_diffusion.items():
+        if topic >= 0:
+            community_vals.append(label_popagation_partition[user])
+            topic_vals.append(topic)
+    directed_nmi = normalized_mutual_info_score(community_vals, topic_vals)
+    directed_ami = adjusted_mutual_info_score(community_vals, topic_vals)
+    directed_ari = adjusted_rand_score(community_vals, topic_vals)
+    return directed_nmi, directed_ami, directed_ari    
 
 
 def topic_propagation(network_name, G, tweets, network_type='retweet'):
@@ -243,30 +268,66 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
             print()
 
     graph_name = f'{graph_name}_community_louvain'
-    label_popagation_partition = community_louvain.best_partition(G_copy.to_undirected())
-    nx.set_node_attributes(G_copy, label_popagation_partition, 'label_propagation')
-    # nx.write_gexf(G_copy, output_path / f"{graph_name}.gexf")
+    louvain_partition = community_louvain.best_partition(G_copy.to_undirected())
+    nx.set_node_attributes(G_copy, louvain_partition, 'louvain_partition')
+    # nx.write_gexf(G_copy, f"{graph_name}.gexf")
 
     # extract discourse topic data
-    rows = []
-    min_words = 3
-    seen_tweets = set()
+    #rows = []
+    #min_words = 3
+    #seen_tweets = set()
     # export_topic_tweet_csv(graph_tweets, min_words, output_path, probs, rows, seen_tweets, topics)
-
+    print('-------------- louvain_partition ------------------')
     topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
-    community_vals = []
-    topic_vals = []
-    for user, topic in topic_diffusion.items():
-        if topic >= 0:
-            community_vals.append(label_popagation_partition[user])
-            topic_vals.append(topic)
-    nmi = normalized_mutual_info_score(community_vals, topic_vals)
-    print('NMI:', nmi)
-    ami = adjusted_mutual_info_score(community_vals, topic_vals)
-    print('AMI:', ami)
-    rmi = adjusted_rand_score(community_vals, topic_vals)
-    print('ARI:', rmi)
-    return nmi, ami, rmi
+    directed_nmi, directed_ami, directed_ari = topic_community_correlation(louvain_partition, topic_diffusion)
+    print('directed_NMI:', directed_nmi)
+    print('directed_AMI:', directed_ami)
+    print('directed_ARI:', directed_ari)
+    
+    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(louvain_partition, topic_diffusion)
+    print('undirected_NMI:', undirected_nmi)
+    print('undirected_AMI:', undirected_ami)
+    print('undirected_ARI:', undirected_ari)
+    louvain_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    
+    print('-------------- metis_partition ------------------')
+    metis_partition = partition_metis(G)
+    nx.set_node_attributes(G_copy, metis_partition, 'metis_partition')
+    
+    topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
+    directed_nmi, directed_ami, directed_ari = topic_community_correlation(metis_partition, topic_diffusion)
+    print('directed_NMI:', directed_nmi)
+    print('directed_AMI:', directed_ami)
+    print('directed_ARI:', directed_ari)
+    
+    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(metis_partition, topic_diffusion)
+    print('undirected_NMI:', undirected_nmi)
+    print('undirected_AMI:', undirected_ami)
+    print('undirected_ARI:', undirected_ari)
+    metis_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    
+    print('-------------- rsc_partition ------------------')
+    rsc_partition = partition_spectral(G)
+    nx.set_node_attributes(G_copy, rsc_partition, 'rsc_partition')
+    
+    topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
+    directed_nmi, directed_ami, directed_ari = topic_community_correlation(rsc_partition, topic_diffusion)
+    print('directed_NMI:', directed_nmi)
+    print('directed_AMI:', directed_ami)
+    print('directed_ARI:', directed_ari)
+    
+    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(rsc_partition, topic_diffusion)
+    print('undirected_NMI:', undirected_nmi)
+    print('undirected_AMI:', undirected_ami)
+    print('undirected_ARI:', undirected_ari)
+    rsc_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    
+    nx.write_gexf(G_copy, f"{graph_name}.gexf")
+    
+    return louvain_scores , metis_scores , rsc_scores
 
 
 
