@@ -120,10 +120,11 @@ prefix = 'retweet_graph_'
 
 
 tweet_path = Path('data/full_tweets/')
-output_path = Path('topic_propagation_scores_kiran_dataset.csv')
+output_path = Path('topic_propagation_scores_kiran_dataset_run3.csv')
 
 base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI', 'undirected_ARI']
-cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
+# cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
+cols = ['graph_name'] + ['louvain' + s for s in base_score_names]
 
 if output_path.exists():
     processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
@@ -136,15 +137,16 @@ for edgelist_file in tqdm(network_path.iterdir(), desc='process graphs', total=g
         graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
         if graph_name not in processed_graphs and (tweet_path / f'{graph_name}.txt').exists():
             print(graph_name)
-            G = nx.read_weighted_edgelist(edgelist_file, delimiter=',')
+            G = nx.read_weighted_edgelist(edgelist_file, delimiter=',', create_using=nx.DiGraph)
             G.graph['edge_weight_attr'] = 'weight'
             edge_weight = nx.get_edge_attributes(G, 'weight')
             nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
             
             tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False) 
             
-            louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')            
-            row = [graph_name] + louvain_scores + metis_scores + rsc_scores
+            # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
+            louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
+            row = [graph_name] + louvain_scores
             if output_path.exists():
                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
             else:
