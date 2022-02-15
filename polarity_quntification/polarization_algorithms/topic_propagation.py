@@ -1,4 +1,9 @@
+import os
+from pathlib import Path
+
 import pandas as pd
+from gensim.corpora import Dictionary
+from gensim.models import LdaModel, LdaMulticore
 from tqdm.auto import tqdm
 import json
 import re
@@ -111,6 +116,9 @@ class LabelPropagation(Estimator):
         self._nodes = [node for node in self._graph.nodes()]
         if init_labels:
             self._labels = dict(init_labels)
+            # for node in self._graph.nodes():
+            #     if node not in self._labels:
+            #         self._labels[node] = -1
         else:
             self._labels = {node: i for i, node in enumerate(self._graph.nodes())}
         random.seed(self.seed)
@@ -181,9 +189,12 @@ def mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, topic_treshold=
         user_to_topic[username].append(topic if prob > topic_treshold else -1)
     topic_partition = {t['user']['screen_name']: Counter(user_to_topic[t['user']['screen_name']]).most_common(1)[0][0]
                        for t in tqdm(graph_tweets, desc='topic partition')}
+    missing = 0
     for u in graph_nodes:
         if u not in topic_partition:
             topic_partition[u] = -1
+            missing +=1
+    print('users without init topic', missing)
     return topic_partition
 
 
@@ -229,23 +240,66 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
         'topic_words': topic_words,
         'stem': True,
     }
-    tweet_texts = [cleaner(t['text'], **cleaner_args) for t in tqdm(graph_tweets, desc='clear tweets')]
-    topic_model = BERTopic(verbose=True)
-    topics, probs = topic_model.fit_transform(tweet_texts)
 
-    probs = np.ones(len(topics)) if probs is None else probs
+    ##### BERTopic ###########
+    # num_topics = 'bert'
+    # tweet_texts = [cleaner(t['text'], **cleaner_args) for t in tqdm(graph_tweets, desc='clear tweets')]
+    # topic_model = BERTopic(verbose=True)
+    # topics, probs = topic_model.fit_transform(tweet_texts)
+
     # Mark user by topic
-    topic_treshold = 0.55
-    topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, topic_treshold=0.55)
+    # topic_treshold = 0.55
+    # topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, topic_treshold=topic_treshold)
+    # probs = np.ones(len(topics)) if probs is None else probs
 
-    num_topics = 'bert'
+    ######## LDA #############
+    num_topics = 10
+    tweet_tokens = [remove_short_tokens(tknzr.tokenize(cleaner(t['text'], **cleaner_args)), limit=4) for t in
+                    tqdm(graph_tweets, desc='prepare tweets')]
+    text_dict = Dictionary(tweet_tokens)
+    tweets_bow = [text_dict.doc2bow(tweet) for tweet in tweet_tokens]
+
+    lda_path = Path('data/lda_models')
+    if not lda_path.exists():
+        os.makedirs(lda_path)
+
+    lda_model_name = lda_path / f'lda{num_topics}-{network_name}.model'
+    if lda_model_name.exists():
+        lda_model = LdaModel.load(str(lda_model_name))
+    else:
+        lda_model = LdaMulticore(corpus=tweets_bow,
+                                 id2word=text_dict,
+                                 num_topics=num_topics,
+                                 random_state=1,
+                                 passes=10,
+                                 workers=3)
+
+        lda_model.save(str(lda_model_name))
+    topic_treshold = 0.3
+    tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
+
+    # Mark user by topic
+    user_to_topic = defaultdict(list)
+    tweets_users = [t['user']['screen_name'] for t in graph_tweets]
+    n_users = len(tweets_users)
+    probs = []
+    topics = []
+    for username, tweet_topic_prob in tqdm(zip(tweets_users, tweet_topic_probs), desc='calc user topics', total=n_users):
+        max_topic, prob = max(tweet_topic_prob, key=lambda x: x[1])
+        probs.append(prob)
+        topics.append(max_topic)
+        # user_to_topic[username].append(max_topic if prob > topic_treshold else -1)
+
+    # topic_partition = {u: Counter(user_to_topic[u]).most_common(1)[0][0] for u in user_to_topic}
+    topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, topic_treshold=topic_treshold)
+
     graph_name = f'{network_name}_{network_type}_topics{num_topics}_fixed_topic_propagation_{topic_treshold}'
 
     G_copy = G.copy(as_view=False)
     nx.set_node_attributes(G_copy, topic_partition, "group")
     # node_topics = [topic_partition[n] for n in G_copy.nodes()]
 
-    iterations = 1000
+    iterations = 100
     for weighted in [True]:
         for directed, in_edges in [(False, True), (True, False)]:
             graph_type = f'{"directed" if directed else "undirected"}'
