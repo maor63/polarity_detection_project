@@ -223,7 +223,7 @@ def topic_community_correlation(label_popagation_partition, topic_diffusion):
     return directed_nmi, directed_ami, directed_ari
 
 
-def topic_propagation(network_name, G, tweets, network_type='retweet'):
+def topic_propagation(network_name, G, tweets, network_type='retweet', topic_treshold=0.0):
     # Read Tweets
     # tweets = read_tweets_from_file(tweet_path / f'{network_name}.txt', filter_retweets=False)
 
@@ -277,7 +277,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
                                  workers=3)
 
         lda_model.save(str(lda_model_name))
-    topic_treshold = 0.0
+
     tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
 
     # Mark user by topic

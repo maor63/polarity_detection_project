@@ -123,8 +123,10 @@ if __name__ == "__main__":
     #            else:
     #                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
+    topic_treshold = 0.0
+
     tweet_path = Path('data/full_tweets/')
-    output_path = Path('topic_propagation_scores_kiran_dataset_run4.csv')
+    output_path = Path(f'topic_propagation_scores_kiran_dataset_LDA5_minprob_{topic_treshold}_run2.csv')
 
     base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
                         'undirected_ARI']
@@ -150,7 +152,8 @@ if __name__ == "__main__":
                 tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
 
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
-                louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
+                louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet',
+                                                   topic_treshold=topic_treshold)
                 row = [graph_name] + louvain_scores
                 if output_path.exists():
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
