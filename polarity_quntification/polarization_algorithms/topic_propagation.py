@@ -170,7 +170,9 @@ def remove_short_tokens(tokens, limit=2):
     return [t.lower() for t in tokens if len(t) >= limit]
 
 
-def export_topic_tweet_csv(graph_tweets, min_words, output_path, probs, rows, seen_tweets, topics):
+def export_topic_tweet_csv(network_name, graph_tweets, min_words, probs, topics, num_topics):
+    rows = []    
+    seen_tweets = set()
     for tweet, topic, prob in tqdm(zip(graph_tweets, topics, probs), desc='topic to tweets', total=len(graph_tweets)):
         username = tweet['user']['screen_name']
         if len(tweet['text'].split()) >= min_words and tweet['id'] not in seen_tweets:
@@ -178,7 +180,7 @@ def export_topic_tweet_csv(graph_tweets, min_words, output_path, probs, rows, se
             rows.append([topic, prob, -1, tweet['text'], link, username])
         seen_tweets.add(tweet['id'])
     pd.DataFrame(rows, columns=['topic', 'topic_prob', 'community', 'text', 'link', 'user']).to_csv(
-        output_path / f'{network_name}_tweets_with_more_{min_words}_words_topics{num_topics}_0.55.csv')
+        f'{network_name}_tweets_with_more_{min_words}_words_topics{num_topics}_0.55.csv')
 
 
 def mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, topic_treshold=0.55):
@@ -321,10 +323,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
     # nx.write_gexf(G_copy, f"{graph_name}.gexf")
 
     # extract discourse topic data
-    # rows = []
-    # min_words = 3
-    # seen_tweets = set()
-    # export_topic_tweet_csv(graph_tweets, min_words, output_path, probs, rows, seen_tweets, topics)
+   
     print('-------------- louvain_partition ------------------')
     topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
     directed_nmi, directed_ami, directed_ari = topic_community_correlation(louvain_partition, topic_diffusion)
@@ -374,6 +373,8 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
     # rsc_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
 
     nx.write_gexf(G_copy, f"{graph_name}.gexf")
+    min_words = 3
+    export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics)
 
     # return louvain_scores, metis_scores, rsc_scores
     return louvain_scores
