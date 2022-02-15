@@ -255,7 +255,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
     # probs = np.ones(len(topics)) if probs is None else probs
 
     ######## LDA #############
-    num_topics = 10
+    num_topics = 5
     tweet_tokens = [remove_short_tokens(tknzr.tokenize(cleaner(t['text'], **cleaner_args)), limit=4) for t in
                     tqdm(graph_tweets, desc='prepare tweets')]
     text_dict = Dictionary(tweet_tokens)
@@ -277,7 +277,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet'):
                                  workers=3)
 
         lda_model.save(str(lda_model_name))
-    topic_treshold = 0.3
+    topic_treshold = 0.0
     tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
 
     # Mark user by topic
