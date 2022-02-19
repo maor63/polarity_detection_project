@@ -170,17 +170,18 @@ def remove_short_tokens(tokens, limit=2):
     return [t.lower() for t in tokens if len(t) >= limit]
 
 
-def export_topic_tweet_csv(network_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username):
+def export_topic_tweet_csv(network_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username, path):
     rows = []    
     seen_tweets = set()
     for tweet, topic, prob in tqdm(zip(graph_tweets, topics, probs), desc='topic to tweets', total=len(graph_tweets)):
         username = get_tweet_username(tweet)
-        if len(tweet['text'].split()) >= min_words and tweet['id'] not in seen_tweets:
-            link = f'https://twitter.com/{username}/status/{tweet["id_str"]}'
+        tweet_id = 'id' if 'id' in tweet else 'status_id'
+        if len(tweet['text'].split()) >= min_words and tweet[tweet_id] not in seen_tweets:
+            link = f'https://twitter.com/{username}/status/{tweet[tweet_id]}'
             rows.append([topic, prob, -1, tweet['text'], link, username])
-        seen_tweets.add(tweet['id'])
+        seen_tweets.add(tweet[tweet_id])
     pd.DataFrame(rows, columns=['topic', 'topic_prob', 'community', 'text', 'link', 'user']).to_csv(
-        f'{network_name}_tweets_with_more_{min_words}_words_topics{num_topics}_0.55.csv')
+        path / f'{network_name}_tweets_with_more_{min_words}_words_topics{num_topics}.csv')
 
 
 def mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, get_tweet_username, topic_treshold=0.55):
@@ -214,7 +215,7 @@ def topic_community_correlation(label_popagation_partition, topic_diffusion):
     community_vals = []
     topic_vals = []
     for user, topic in topic_diffusion.items():
-        if topic >= 0:
+        if topic >= 0 and user in label_popagation_partition:
             community_vals.append(label_popagation_partition[user])
             topic_vals.append(topic)
     directed_nmi = normalized_mutual_info_score(community_vals, topic_vals)
@@ -223,7 +224,7 @@ def topic_community_correlation(label_popagation_partition, topic_diffusion):
     return directed_nmi, directed_ami, directed_ari
 
 
-def topic_propagation(network_name, G, tweets, network_type='retweet', topic_treshold=0.0, num_topics=5):
+def topic_propagation(network_name, G, tweets, network_type='retweet', topic_treshold=0.0, num_topics=5, export_results=False):
     # Read Tweets
     # tweets = read_tweets_from_file(tweet_path / f'{network_name}.txt', filter_retweets=False)
 
@@ -343,8 +344,10 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     louvain_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
 
     print('-------------- metis_partition ------------------')
-    G = G.to_undirected()
-    metis_partition = partition_metis(G)
+    dG = G.to_undirected()
+    Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
+    G_Giant = dG.subgraph(Gcc[0])
+    metis_partition = partition_metis(G_Giant)
     nx.set_node_attributes(G_copy, metis_partition, 'metis_partition')
 
     topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
@@ -362,7 +365,10 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
 
     print('-------------- rsc_partition ------------------')
 
-    rsc_partition = partition_spectral(G)
+    dG = G.to_undirected()
+    Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
+    G_Giant = dG.subgraph(Gcc[0])
+    rsc_partition = partition_spectral(G_Giant)
     nx.set_node_attributes(G_copy, rsc_partition, 'rsc_partition')
 
     topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
@@ -378,9 +384,14 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     print('undirected_ARI:', undirected_ari)
     rsc_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
 
-    # nx.write_gexf(G_copy, f"{graph_name}.gexf")
-    min_words = 3
-    # export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username)
+    if export_results:
+        export_path = Path('output/') / graph_name
+        if not export_path.exists():
+            os.makedirs(export_path)
+        nx.write_gexf(G_copy, export_path / f"{graph_name}.gexf")
+        min_words = 3
+        export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username,
+                               path=export_path)
 
     return louvain_scores + metis_scores + rsc_scores
     # return louvain_scores

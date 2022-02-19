@@ -96,6 +96,7 @@ def compute_polarization(dG):
 if __name__ == "__main__":
     freeze_support()
     dataset_type = 'juan'
+    export_results = True
     filter_retweets = True
     if dataset_type == 'kiran':
         network_path = Path('data/networks/retweet_networks/')
@@ -144,7 +145,7 @@ if __name__ == "__main__":
     topic_treshold = 0.0
     num_topics = 2
     tweet_path = Path('data/full_tweets/')
-    output_path = Path(f'topic_propagation_scores_juan_dataset_LDA{num_topics}_minprob_{topic_treshold}{"" if filter_retweets else "_with_retweets"}_run1.csv')
+    output_path = Path(f'topic_propagation_scores_{dataset_type}_dataset_LDA{num_topics}_minprob_{topic_treshold}{"" if filter_retweets else "_with_retweets"}_run1.csv')
 
     base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
                         'undirected_ARI']
@@ -174,7 +175,8 @@ if __name__ == "__main__":
 
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
                 louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet',
-                                                   topic_treshold=topic_treshold, num_topics=num_topics)
+                                                   topic_treshold=topic_treshold, num_topics=num_topics,
+                                                   export_results=export_results)
                 row = [graph_name] + louvain_scores
                 if output_path.exists():
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
