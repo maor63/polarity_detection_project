@@ -1,12 +1,13 @@
+import os
 import random
-
+os.environ["METIS_DLL"] = "polarity_quntification/dll/metis.dll"
 import scipy
 import scipy.sparse
 from scipy.sparse.linalg import eigsh
 import networkx as nx
 import networkx.algorithms.community as nx_comm
 import numpy as np
-# import metis
+import metis
 
 
 def regularized_laplacian_matrix(adj_matrix, tau):

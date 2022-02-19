@@ -1,4 +1,6 @@
+import json
 import os
+from functools import partial
 from multiprocessing import freeze_support
 from pathlib import Path
 
@@ -93,10 +95,24 @@ def compute_polarization(dG):
 
 if __name__ == "__main__":
     freeze_support()
-    network_path = Path('data/networks/retweet_networks/')
-    suffix = '_threshold_largest_CC.txt'
-    prefix = 'retweet_graph_'
-    # output_path = Path('structural_polarity_quantification_scores_kiran_dataset.csv')
+    dataset_type = 'juan'
+    filter_retweets = True
+    if dataset_type == 'kiran':
+        network_path = Path('data/networks/retweet_networks/')
+        suffix = '_threshold_largest_CC.txt'
+        prefix = 'retweet_graph_'
+        graph_read_fn = partial(nx.read_weighted_edgelist, delimiter=',', create_using=nx.DiGraph)
+        read_tweet_fn = partial(read_tweets_from_file, filter_retweets=filter_retweets)
+        tweets_file_name_suffix = '.txt'
+    else:
+        network_path = Path('data/juan_gml/')
+        suffix = '_r.gml'
+        prefix = ''
+        read_tweet_fn = lambda f: json.load(open(f, encoding='latin-1'))
+        tweets_file_name_suffix = '_tweets.json'
+        graph_read_fn = partial(nx.read_gml, label='name')
+
+    # output_path = Path(f'structural_polarity_quantification_scores_{dataset_type}_dataset.csv')
     # cols = ['graph_name', 'rwc_metis', 'arwc_metis', 'ebc_metis', 'gmck_metis', 'mblb_metis', 'mod_metis', 'ei_metis',
     #        'extei_metis', 'cond_metis', 'rwc_rsc', 'arwc_rsc', 'ebc_rsc', 'gmck_rsc', 'mblb_rsc', 'mod_rsc', 'ei_rsc',
     #        'extei_rsc', 'cond_rsc', 'size', 'ave_deg']
@@ -112,7 +128,9 @@ if __name__ == "__main__":
     #        graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
     #        if graph_name not in processed_graphs:
     #            print(graph_name)
-    #            G = nx.read_weighted_edgelist(edgelist_file, delimiter=',')
+    #            # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',')
+    #            G = graph_read_fn(edgelist_file)
+    #            G = G.to_undirected()
     #            G.graph['edge_weight_attr'] = 'weight'
     #            edge_weight = nx.get_edge_attributes(G, 'weight')
     #            nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
@@ -124,14 +142,14 @@ if __name__ == "__main__":
     #                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
     topic_treshold = 0.0
-
+    num_topics = 2
     tweet_path = Path('data/full_tweets/')
-    output_path = Path(f'topic_propagation_scores_kiran_dataset_LDA5_minprob_{topic_treshold}_run2.csv')
+    output_path = Path(f'topic_propagation_scores_juan_dataset_LDA{num_topics}_minprob_{topic_treshold}{"" if filter_retweets else "_with_retweets"}_run1.csv')
 
     base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
                         'undirected_ARI']
-    # cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
-    cols = ['graph_name'] + ['louvain' + s for s in base_score_names]
+    cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
+    # cols = ['graph_name'] + ['louvain' + s for s in base_score_names]
 
     if output_path.exists():
         processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
@@ -142,18 +160,21 @@ if __name__ == "__main__":
     for edgelist_file in tqdm(network_path.iterdir(), desc='process graphs', total=graphs_n):
         if edgelist_file.name.endswith(suffix):
             graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
-            if graph_name not in processed_graphs and (tweet_path / f'{graph_name}.txt').exists():
+            if graph_name not in processed_graphs and (tweet_path / f'{graph_name}{tweets_file_name_suffix}').exists():
                 print(graph_name)
-                G = nx.read_weighted_edgelist(edgelist_file, delimiter=',', create_using=nx.DiGraph)
+                # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',', create_using=nx.DiGraph)
+                G = graph_read_fn(edgelist_file)
+
                 G.graph['edge_weight_attr'] = 'weight'
                 edge_weight = nx.get_edge_attributes(G, 'weight')
                 nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
 
-                tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
+                # tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
+                tweets = read_tweet_fn(tweet_path / f'{graph_name}{tweets_file_name_suffix}')
 
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
                 louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet',
-                                                   topic_treshold=topic_treshold)
+                                                   topic_treshold=topic_treshold, num_topics=num_topics)
                 row = [graph_name] + louvain_scores
                 if output_path.exists():
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
