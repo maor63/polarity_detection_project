@@ -4,6 +4,8 @@ from functools import partial
 from multiprocessing import freeze_support
 from pathlib import Path
 
+from polarity_quntification.polarization_algorithms.vocabulary_based_method_for_quantifying_controversy import vmqc_pol
+
 os.environ["METIS_DLL"] = "polarity_quntification/dll/metis.dll"
 
 from polarity_quntification.polarization_algorithms.topic_propagation import topic_propagation, read_tweets_from_file
@@ -93,6 +95,11 @@ def compute_polarization(dG):
     return infopack
 
 
+def read_tweets_json(f_file):
+    with open(f_file, encoding='latin-1') as f:
+        data = json.load(f)
+    return data
+
 if __name__ == "__main__":
     freeze_support()
     dataset_type = 'juan'
@@ -109,7 +116,7 @@ if __name__ == "__main__":
         network_path = Path('data/juan_gml/')
         suffix = '_r.gml'
         prefix = ''
-        read_tweet_fn = lambda f: json.load(open(f, encoding='latin-1'))
+        read_tweet_fn = read_tweets_json
         tweets_file_name_suffix = '_tweets.json'
         graph_read_fn = partial(nx.read_gml, label='name')
 
@@ -142,20 +149,61 @@ if __name__ == "__main__":
     #            else:
     #                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
-    topic_treshold = 0.0
-    num_topics = 2
-    tweet_path = Path('data/full_tweets/')
-    output_path = Path(f'topic_propagation_scores_{dataset_type}_dataset_LDA{num_topics}_minprob_{topic_treshold}{"" if filter_retweets else "_with_retweets"}_run1.csv')
+    ################################# topic propagation #########################################
+    # topic_treshold = 0.0
+    # num_topics = 2
+    # tweet_path = Path('data/full_tweets/')
+    # output_path = Path(f'topic_propagation_scores_{dataset_type}_dataset_LDA{num_topics}_minprob_{topic_treshold}{"" if filter_retweets else "_with_retweets"}_run1.csv')
+    #
+    # base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
+    #                     'undirected_ARI']
+    # cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
+    # # cols = ['graph_name'] + ['louvain' + s for s in base_score_names]
+    #
+    # if output_path.exists():
+    #     processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
+    # else:
+    #     processed_graphs = []
+    #
+    # graphs_n = len(list(network_path.iterdir())) - len(processed_graphs)
+    # for edgelist_file in tqdm(network_path.iterdir(), desc='process graphs', total=graphs_n):
+    #     if edgelist_file.name.endswith(suffix):
+    #         graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
+    #         if graph_name not in processed_graphs and (tweet_path / f'{graph_name}{tweets_file_name_suffix}').exists():
+    #             print(graph_name)
+    #             # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',', create_using=nx.DiGraph)
+    #             G = graph_read_fn(edgelist_file)
+    #
+    #             G.graph['edge_weight_attr'] = 'weight'
+    #             edge_weight = nx.get_edge_attributes(G, 'weight')
+    #             nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
+    #
+    #             # tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
+    #             tweets = read_tweet_fn(tweet_path / f'{graph_name}{tweets_file_name_suffix}')
+    #
+    #             # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
+    #             louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet',
+    #                                                topic_treshold=topic_treshold, num_topics=num_topics,
+    #                                                export_results=export_results)
+    #             row = [graph_name] + louvain_scores
+    #             if output_path.exists():
+    #                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
+    #             else:
+    #                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
-    base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
-                        'undirected_ARI']
-    cols = ['graph_name'] + ['louvain' + s for s in base_score_names] + ['metis' + s for s in base_score_names] + ['rsc' + s for s in base_score_names]
+    ##################################3 VMQC method #########################################
+    tweet_path = Path('data/full_tweets/')
+    output_path = Path(
+        f'VMQC_method_scores_{dataset_type}_dataset_{"" if filter_retweets else "_with_retweets"}_run1.csv')
+
+    cols = ['graph_name', 'VMQC_score']
     # cols = ['graph_name'] + ['louvain' + s for s in base_score_names]
 
     if output_path.exists():
         processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
     else:
         processed_graphs = []
+
 
     graphs_n = len(list(network_path.iterdir())) - len(processed_graphs)
     for edgelist_file in tqdm(network_path.iterdir(), desc='process graphs', total=graphs_n):
@@ -173,11 +221,14 @@ if __name__ == "__main__":
                 # tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
                 tweets = read_tweet_fn(tweet_path / f'{graph_name}{tweets_file_name_suffix}')
 
+                if len(tweets) > 0 and 'user' in tweets[0]:
+                    get_tweet_username = lambda t: t['user']['screen_name']
+                else:
+                    get_tweet_username = lambda t: t['screen_name']
+
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
-                louvain_scores = topic_propagation(graph_name, G, tweets, network_type='retweet',
-                                                   topic_treshold=topic_treshold, num_topics=num_topics,
-                                                   export_results=export_results)
-                row = [graph_name] + louvain_scores
+                vmqc_score = vmqc_pol(G, tweets, get_tweet_username, verbos=False, graph_name=graph_name)
+                row = [graph_name, vmqc_score]
                 if output_path.exists():
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
                 else:

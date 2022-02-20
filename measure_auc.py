@@ -4,7 +4,7 @@ from sklearn.preprocessing import LabelEncoder
 from pathlib import Path
 
 # scores_df = pd.read_csv('structural_polarity_quantification_scores_juan_dataset.csv')
-scores_df = pd.read_csv('topic_propagation_scores_juan_dataset_LDA5_minprob_0.0_run1.csv')
+scores_df = pd.read_csv('topic_propagation_scores_juan_dataset_LDA2_minprob_0.0_run1.csv')
 labels_df = pd.read_csv('labels_juan.csv')
 merge_df = pd.merge(scores_df, labels_df, how="inner", left_on='graph_name',right_on='topic',)
 

@@ -175,7 +175,12 @@ def export_topic_tweet_csv(network_name, graph_tweets, min_words, probs, topics,
     seen_tweets = set()
     for tweet, topic, prob in tqdm(zip(graph_tweets, topics, probs), desc='topic to tweets', total=len(graph_tweets)):
         username = get_tweet_username(tweet)
-        tweet_id = 'id' if 'id' in tweet else 'status_id'
+        if 'id' in tweet:
+            tweet_id = 'id'
+        elif 'status_id' in tweet:
+            tweet_id = 'status_id'
+        else:
+            tweet_id = 'id_str'
         if len(tweet['text'].split()) >= min_words and tweet[tweet_id] not in seen_tweets:
             link = f'https://twitter.com/{username}/status/{tweet[tweet_id]}'
             rows.append([topic, prob, -1, tweet['text'], link, username])
@@ -390,8 +395,8 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
             os.makedirs(export_path)
         nx.write_gexf(G_copy, export_path / f"{graph_name}.gexf")
         min_words = 3
-        export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username,
-                               path=export_path)
+        # export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username,
+        #                        path=export_path)
 
     return louvain_scores + metis_scores + rsc_scores
     # return louvain_scores
