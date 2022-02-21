@@ -52,37 +52,42 @@ def vmqc_pol(G, tweets, get_tweet_username, verbos=False, graph_name='none'):
     user_text_G_giant.loc[:, 'pred_prob'] = predicted_df.loc[:, 'pred_prob']
     # user_text_G_giant = pd.concat([user_text_G_giant, predicted_df], axis=1)
     # print(user_text_G_giant.shape, predicted_df.shape)
+    print('Max prob:', user_text_G_giant['pred_prob'].max())
     low_prob_nodes = user_text_G_giant['pred_prob'] < 0.9
     user_text_G_giant.loc[low_prob_nodes, 'pred_prob'] = 0
     lable_2_nodes = user_text_G_giant['pred'] == '__label__2'
     user_text_G_giant.loc[lable_2_nodes, 'pred_prob'] = -user_text_G_giant.loc[lable_2_nodes, 'pred_prob']
 
     ideos = dict(zip(user_text_G_giant['username'], user_text_G_giant['pred_prob']))
-    node_ideos = [ideos.get(n) for n in G_Giant.nodes() if n in ideos]
-    nx.set_node_attributes(G_Giant, node_ideos, name='ideo')
-    nx.set_node_attributes(G_Giant, list(range(1, len(G_Giant.nodes()) + 1)), name='label')
-    nx.set_node_attributes(G_Giant, list(range(1, len(G_Giant.nodes()) + 1)), name='label2')
+    node_ideos = [ideos.get(n, 0) for n in G_Giant.nodes()]
+    node_to_id = dict(zip(G_Giant.nodes(), range(len(G_Giant.nodes()))))
+
+    nx.set_node_attributes(G_Giant, ideos, name='ideo')
+    nx.set_node_attributes(G_Giant, node_to_id, name='label')
+    nx.set_node_attributes(G_Giant, node_to_id, name='label2')
     # ideos = nx.get_node_attributes(G, 'ideo')
 
     corenode = []
-    node_to_id = dict(zip(G_Giant.nodes(), range(len(G_Giant.nodes()))))
     for key in ideos.keys():
         if (ideos[key] == 1 or ideos[key] == -1):
             corenode.append(node_to_id[key])
 
-    v_current = propagation_model(G, corenode)
+    v_current = propagation_model(G_Giant, corenode)
     score = GetPolarizationIndex(v_current)
     print(score)
+    if score == np.nan:
+        score = 0
     return score
 
 
-def predict_text_community(fasttext_model, graph_name, output_path, predict_text):
+def predict_text_community(fasttext_model, graph_name, output_path, predict_text, output_csv=True):
     rows = []
     for txt in predict_text:
         pred = fasttext_model.predict(txt)
         rows.append((pred[0][0], pred[1][0]))  # (label, prob)
     predicted_df = pd.DataFrame(rows, columns=['pred', 'pred_prob'])
-    predicted_df.to_csv(str(output_path / f'{graph_name}-predict.txt'), index=False, header=None)
+    if output_csv:
+        predicted_df.to_csv(str(output_path / f'{graph_name}-predict.txt'), index=False, header=None)
     return predicted_df
 
 
@@ -96,16 +101,25 @@ def create_user_text_df(get_tweet_username, louvain_partition, tweets):
 
 
 def prepare_train_file(community1, community2, train_file_path, user_text):
-    community1_text = user_text[user_text['community'] == community1]['text']
+    community1_user_text = user_text[user_text['community'] == community1]
+    community1_text = community1_user_text['text']
     community1_text = clean_text_r_code(community1_text)
-    community2_text = user_text[user_text['community'] == community2]['text']
+
+    community2_user_text = user_text[user_text['community'] == community2]
+    community2_text = community2_user_text['text']
     community2_text = clean_text_r_code(community2_text)
+
     community1_df = pd.DataFrame(community1_text, columns=['text'])
     community1_df['label'] = '__label__1'
+    community1_df['username'] = community1_user_text['username'].tolist()
+
     community2_df = pd.DataFrame(community2_text, columns=['text'])
     community2_df['label'] = '__label__2'
-    pd.concat([community1_df, community2_df], axis=0)[['label', 'text']].to_csv(train_file_path, index=False,
-                                                                                header=None, sep=' ')
+    community2_df['username'] = community2_user_text['username'].tolist()
+
+    communities_clean_text = pd.concat([community1_df, community2_df], axis=0)[['label', 'text']]
+    communities_clean_text.to_csv(train_file_path, index=False, header=None, sep=' ')
+    return community1_df, community2_df
 
 
 def clean_text_r_code(community_text):
@@ -159,8 +173,8 @@ def propagation_model(G, corenode, tol=10 ** -5, save_xi=True):
     v_new = []
     dict_nodes = {}
     for nodo in G.nodes():
-        dict_nodes[G.nodes[nodo]['label']] = G.nodes[nodo]['ideo']
-        v_current.append(G.nodes[nodo]['ideo'])
+        dict_nodes[G.nodes[nodo]['label']] = G.nodes[nodo].get('ideo', 0)
+        v_current.append(G.nodes[nodo].get('ideo', 0))
         v_new.append(0.0)
 
     v_current = 1. * np.array(v_current)
