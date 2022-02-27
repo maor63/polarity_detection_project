@@ -6,6 +6,7 @@ from pathlib import Path
 
 from polarity_quntification.polarization_algorithms.measuring_controversy_in_social_networks_through_nlp import \
     semantic_distance_pol
+from polarity_quntification.polarization_algorithms.topic_propagation_ver2 import topic_propagation_pol
 from polarity_quntification.polarization_algorithms.vocabulary_based_method_for_quantifying_controversy import vmqc_pol
 
 os.environ["METIS_DLL"] = "polarity_quntification/dll/metis.dll"
@@ -104,7 +105,10 @@ def read_tweets_json(f_file):
 
 
 def run_contrevercy_method_experiment(network_path, tweet_path, output_path, score_name, semantic_polarity_score):
-    cols = ['graph_name', score_name]
+    if isinstance(score_name, list):
+        cols = ['graph_name'] + score_name
+    else:
+        cols = ['graph_name', score_name]
     if output_path.exists():
         processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
     else:
@@ -132,7 +136,10 @@ def run_contrevercy_method_experiment(network_path, tweet_path, output_path, sco
 
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
                 vmqc_score = semantic_polarity_score(G, tweets, get_tweet_username, verbos=False, graph_name=graph_name)
-                row = [graph_name, vmqc_score]
+                if isinstance(vmqc_score, list):
+                    row = [graph_name] + vmqc_score
+                else:
+                    row = [graph_name, vmqc_score]
                 if output_path.exists():
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
                 else:
@@ -232,12 +239,25 @@ if __name__ == "__main__":
 
     ##################################3 VMQC method #########################################
     tweet_path = Path('data/full_tweets/')
+    # output_path = Path(
+    #     f'VMQC_method_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
+    #
+    # run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'VMQC_score', vmqc_pol)
+
+    # output_path = Path(
+    #     f'semantic_distance_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
+    #
+    # run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'semantic_distance', semantic_distance_pol)
+
+    topic_min_prob = 0.7
     output_path = Path(
-        f'VMQC_method_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
-
-    run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'VMQC_score', vmqc_pol)
+        f'directed_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
+    directed_topic_propagation_pol = partial(topic_propagation_pol, directed=True, topic_min_prob=topic_min_prob)
+    run_contrevercy_method_experiment(network_path, tweet_path, output_path, ['directed_NMI', 'directed_AMI', 'directed_ARI'], directed_topic_propagation_pol)
 
     output_path = Path(
-        f'semantic_distance_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
+        f'undirected_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
 
-    run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'semantic_distance', semantic_distance_pol)
+    undirected_topic_propagation_pol = partial(topic_propagation_pol, directed=False, topic_min_prob=topic_min_prob)
+    run_contrevercy_method_experiment(network_path, tweet_path, output_path,
+                                      ['undirected_NMI', 'undirected_AMI', 'undirected_ARI'], undirected_topic_propagation_pol)

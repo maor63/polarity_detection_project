@@ -37,6 +37,11 @@ def vmqc_pol(G, tweets, get_tweet_username, verbos=False, graph_name='none'):
 
     Gcc = sorted(nx.connected_components(G_copy), key=len, reverse=True)
     G_Giant = G_copy.subgraph(Gcc[0])
+    isolated_nodes = [n for n, d in G_Giant.degree() if d < 3]
+    G_Giant = G_Giant.copy()
+    G_Giant.remove_nodes_from(isolated_nodes)
+
+
     user_text_G_giant = user_text[user_text['username'].isin(set(G_Giant.nodes()))]
     predict_text = clean_text_r_code(user_text_G_giant['text'])
 
@@ -54,11 +59,14 @@ def vmqc_pol(G, tweets, get_tweet_username, verbos=False, graph_name='none'):
     # print(user_text_G_giant.shape, predicted_df.shape)
     print('Max prob:', user_text_G_giant['pred_prob'].max())
     low_prob_nodes = user_text_G_giant['pred_prob'] < 0.9
-    user_text_G_giant.loc[low_prob_nodes, 'pred_prob'] = 0
     lable_2_nodes = user_text_G_giant['pred'] == '__label__2'
     user_text_G_giant.loc[lable_2_nodes, 'pred_prob'] = -user_text_G_giant.loc[lable_2_nodes, 'pred_prob']
+    user_text_G_giant.loc[low_prob_nodes, 'pred_prob'] = 0.0
 
-    ideos = dict(zip(user_text_G_giant['username'], user_text_G_giant['pred_prob']))
+    ideos = dict(zip(user_text_G_giant['username'], user_text_G_giant['pred_prob'].fillna(0.0)))
+    for n in G_Giant.nodes():
+        if n not in ideos:
+            ideos[n] = 0.0
     node_ideos = [ideos.get(n, 0) for n in G_Giant.nodes()]
     node_to_id = dict(zip(G_Giant.nodes(), range(len(G_Giant.nodes()))))
 
@@ -173,8 +181,8 @@ def propagation_model(G, corenode, tol=10 ** -5, save_xi=True):
     v_new = []
     dict_nodes = {}
     for nodo in G.nodes():
-        dict_nodes[G.nodes[nodo]['label']] = G.nodes[nodo].get('ideo', 0)
-        v_current.append(G.nodes[nodo].get('ideo', 0))
+        dict_nodes[G.nodes[nodo]['label']] = G.nodes[nodo]['ideo']
+        v_current.append(G.nodes[nodo]['ideo'])
         v_new.append(0.0)
 
     v_current = 1. * np.array(v_current)
@@ -187,7 +195,7 @@ def propagation_model(G, corenode, tol=10 ** -5, save_xi=True):
     times = 0
 
     # Do as many times as required for convergence
-    for i in tqdm(range(min(len(v_current), 100)), desc='label propagation'):
+    for i in tqdm(range(min(len(v_current), 200)), desc='label propagation'):
         if notconverged == 0:
             break
         times = times + 1
@@ -230,8 +238,14 @@ def GetPolarizationIndex(ideos):
     AN = sum(hist[edg < 0])
     AP0 = 1. * AP / (AP + AN)
     AN0 = 1. * AN / (AP + AN)
+    # if AP > 0:
     cgp = sum(hist[edg > 0] * edg[edg > 0]) / sum(hist[edg > 0])
+    # else:
+    #     cgp = 0
+    # if AN > 0:
     cgn = sum(hist[edg < 0] * edg[edg < 0]) / sum(hist[edg < 0])
+    # else:
+    #     cgn = 0
     D = cgp - cgn
     p1 = 0.5 * D * (1. - 1. * abs(AP0 - AN0))  # polarization index
     DA = 1. * abs(AP0 - AN0) / (AP0 + AN0)  # Areas Difference
@@ -256,8 +270,9 @@ if __name__ == "__main__":
     if len(names_to_install) > 0:
         utils.install_packages(StrVector(names_to_install))
 
-    tweets_path = 'data/full_tweets/area51_tweets.json'
-    graph_path = Path('data/juan_gml/area51_r.gml')
+    graph_name = 'ukraine'
+    tweets_path = 'data/full_tweets/%s_tweets.json' % graph_name
+    graph_path = Path('data/juan_gml/%s_r.gml' % graph_name)
     suffix = '_r.gml'
     prefix = ''
 

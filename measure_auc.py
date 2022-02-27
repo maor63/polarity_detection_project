@@ -6,9 +6,10 @@ from pathlib import Path
 # scores_df = pd.read_csv('structural_polarity_quantification_scores_juan_dataset.csv')
 # scores_df = pd.read_csv('topic_propagation_scores_juan_dataset_LDA2_minprob_0.0_run1.csv')
 # scores_df = pd.read_csv('semantic_distance_scores_juan_dataset_run1.csv')
-# scores_df = pd.read_csv('semantic_distance_scores_kiran_dataset_run1.csv')
-scores_df = pd.read_csv('VMQC_method_scores_kiran_dataset_run1.csv')
+# scores_df = pd.read_csv('VMQC_method_scores_juan_dataset_run2.csv')
+scores_df = pd.read_csv('undirected_leiden_topic_propagation_scores_juan_dataset_minprob0.7_run2.csv')
 labels_df = pd.read_csv('labels_juan.csv')
+# labels_df = pd.read_csv('labels.csv')
 merge_df = pd.merge(scores_df, labels_df, how="inner", left_on='graph_name', right_on='topic', )
 
 # scores = [col for col in scores_df.columns if col.endswith('_metis') or col.endswith('_rsc')]
