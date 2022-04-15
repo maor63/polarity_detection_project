@@ -171,7 +171,7 @@ def remove_short_tokens(tokens, limit=2):
 
 
 def export_topic_tweet_csv(network_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username, path):
-    rows = []    
+    rows = []
     seen_tweets = set()
     for tweet, topic, prob in tqdm(zip(graph_tweets, topics, probs), desc='topic to tweets', total=len(graph_tweets)):
         username = get_tweet_username(tweet)
@@ -201,7 +201,7 @@ def mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, get_tweet_usern
     for u in graph_nodes:
         if u not in topic_partition:
             topic_partition[u] = -1
-            missing +=1
+            missing += 1
     print('users without init topic', missing)
     return topic_partition
 
@@ -229,7 +229,92 @@ def topic_community_correlation(label_popagation_partition, topic_diffusion):
     return directed_nmi, directed_ami, directed_ari
 
 
-def topic_propagation(network_name, G, tweets, network_type='retweet', topic_treshold=0.0, num_topics=5, export_results=False):
+def adjusted_topic_propagation(G, tweets, get_tweet_username, network_name, network_type='retweet', topic_treshold=0.0,
+                               topic_method='lda', community_method='louvain', community_size_thresh=0.1, *args, **kwargs):
+    stemmer = PorterStemmer()
+    tknzr = TweetTokenizer()
+    topic_words = {network_name}
+    graph_nodes = set(G.nodes())
+    graph_tweets = [t for t in tqdm(tweets, desc='get tweets filtered by graph') if
+                    get_tweet_username(t) in graph_nodes]
+
+    # Bert topic modeling
+    cleaner_args = {
+        'stemmer': stemmer,
+        'tknzr': tknzr,
+        'topic_words': topic_words,
+        'stem': True,
+    }
+    G_copy = G.copy(as_view=False)
+    if community_method == 'louvain':
+        partition = community_louvain.best_partition(G_copy.to_undirected())
+
+    large_communities = set()
+    community_min_size = len(G_copy.nodes()) * community_size_thresh
+    for community, size in Counter(list(partition.values())).items():
+        if size >= community_min_size:
+            large_communities.add(community)
+
+    new_partition = {k: v if v in large_communities else -1 for k, v in partition}
+
+    if topic_method == 'lda':
+        text_col = 'text' if 'text' in tweets[0] else 'clean_text'
+        tweet_tokens = [remove_short_tokens(tknzr.tokenize(cleaner(t[text_col], **cleaner_args)), limit=4) for t in
+                        tqdm(graph_tweets, desc='prepare tweets')]
+        text_dict = Dictionary(tweet_tokens)
+        tweets_bow = [text_dict.doc2bow(tweet) for tweet in tweet_tokens]
+
+        lda_model = LdaMulticore(corpus=tweets_bow,
+                                 id2word=text_dict,
+                                 num_topics=max(len(large_communities), 2),
+                                 random_state=1,
+                                 passes=10,
+                                 workers=3)
+
+        tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
+
+    tweets_users = [get_tweet_username(t) for t in graph_tweets]
+    n_users = len(tweets_users)
+    probs = []
+    topics = []
+    for username, tweet_topic_prob in tqdm(zip(tweets_users, tweet_topic_probs), desc='calc user topics',
+                                           total=n_users):
+        max_topic, prob = max(tweet_topic_prob, key=lambda x: x[1])
+        probs.append(prob)
+        topics.append(max_topic)
+        # user_to_topic[username].append(max_topic if prob > topic_treshold else -1)
+
+    # topic_partition = {u: Counter(user_to_topic[u]).most_common(1)[0][0] for u in user_to_topic}
+    topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, get_tweet_username,
+                                         topic_treshold=topic_treshold)
+
+    iterations = 100
+    for weighted in [True]:
+        for directed, in_edges in [(False, True), (True, False)]:
+            graph_type = f'{"directed" if directed else "undirected"}'
+            if directed:
+                graph_type += f'{"_in_edges" if in_edges else "_out_edges"}'
+            graph_type += f'{"_weighted" if weighted else ""}'
+            lp_model = LabelPropagation(iterations=iterations, loudest_neighbor=False)
+            print('Topic propagation', graph_type)
+            lp_model.fit(G_copy, init_labels=topic_partition, to_undirected=not directed, weighted=weighted,
+                         in_edges=in_edges)
+            label_popagation_partition = lp_model.get_memberships()
+            nx.set_node_attributes(G_copy, label_popagation_partition, graph_type)
+            #         nx.set_node_attributes(G_copy, {k: str(v) for k, v in label_popagation_partition.items()}, "title")
+            print()
+
+    topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
+    directed_nmi, directed_ami, directed_ari = topic_community_correlation(new_partition, topic_diffusion)
+    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(new_partition, topic_diffusion)
+    scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    return scores
+
+
+
+def topic_propagation(G, tweets, get_tweet_username, network_name, network_type='retweet', topic_treshold=0.0,
+                      num_topics=5, export_results=False, *args, **kwargs):
     # Read Tweets
     # tweets = read_tweets_from_file(tweet_path / f'{network_name}.txt', filter_retweets=False)
 
@@ -237,10 +322,10 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     tknzr = TweetTokenizer()
     topic_words = {network_name}
 
-    if len(tweets) > 0 and 'user' in tweets[0]:
-        get_tweet_username = lambda t: t['user']['screen_name']
-    else:
-        get_tweet_username = lambda t: t['screen_name']
+    # if len(tweets) > 0 and 'user' in tweets[0]:
+    #     get_tweet_username = lambda t: t['user']['screen_name']
+    # else:
+    #     get_tweet_username = lambda t: t['screen_name']
 
     graph_nodes = set(G.nodes())
     graph_tweets = [t for t in tqdm(tweets, desc='get tweets filtered by graph') if
@@ -254,7 +339,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
         'stem': True,
     }
 
-    ##### BERTopic ###########
+        ##### BERTopic ###########
     # num_topics = 'bert'
     # tweet_texts = [cleaner(t['text'], **cleaner_args) for t in tqdm(graph_tweets, desc='clear tweets')]
     # topic_model = BERTopic(verbose=True)
@@ -266,7 +351,9 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     # probs = np.ones(len(topics)) if probs is None else probs
 
     ######## LDA #############
-    tweet_tokens = [remove_short_tokens(tknzr.tokenize(cleaner(t['text'], **cleaner_args)), limit=4) for t in
+
+    text_col = 'text' if 'text' in tweets[0] else 'clean_text'
+    tweet_tokens = [remove_short_tokens(tknzr.tokenize(cleaner(t[text_col], **cleaner_args)), limit=4) for t in
                     tqdm(graph_tweets, desc='prepare tweets')]
     text_dict = Dictionary(tweet_tokens)
     tweets_bow = [text_dict.doc2bow(tweet) for tweet in tweet_tokens]
@@ -286,7 +373,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
                                  passes=10,
                                  workers=3)
 
-        lda_model.save(str(lda_model_name))
+        # lda_model.save(str(lda_model_name))
 
     tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
 
@@ -296,14 +383,16 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     n_users = len(tweets_users)
     probs = []
     topics = []
-    for username, tweet_topic_prob in tqdm(zip(tweets_users, tweet_topic_probs), desc='calc user topics', total=n_users):
+    for username, tweet_topic_prob in tqdm(zip(tweets_users, tweet_topic_probs), desc='calc user topics',
+                                           total=n_users):
         max_topic, prob = max(tweet_topic_prob, key=lambda x: x[1])
         probs.append(prob)
         topics.append(max_topic)
         # user_to_topic[username].append(max_topic if prob > topic_treshold else -1)
 
     # topic_partition = {u: Counter(user_to_topic[u]).most_common(1)[0][0] for u in user_to_topic}
-    topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, get_tweet_username,topic_treshold=topic_treshold)
+    topic_partition = mark_user_by_topic(graph_nodes, graph_tweets, probs, topics, get_tweet_username,
+                                         topic_treshold=topic_treshold)
 
     graph_name = f'{network_name}_{network_type}_topics{num_topics}_fixed_topic_propagation_{topic_treshold}'
 
@@ -333,7 +422,7 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     # nx.write_gexf(G_copy, f"{graph_name}.gexf")
 
     # extract discourse topic data
-   
+
     print('-------------- louvain_partition ------------------')
     topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
     directed_nmi, directed_ami, directed_ari = topic_community_correlation(louvain_partition, topic_diffusion)
@@ -348,46 +437,46 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
     print('undirected_ARI:', undirected_ari)
     louvain_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
 
-    print('-------------- metis_partition ------------------')
-    dG = G.to_undirected()
-    Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
-    G_Giant = dG.subgraph(Gcc[0])
-    metis_partition = partition_metis(G_Giant)
-    nx.set_node_attributes(G_copy, metis_partition, 'metis_partition')
-
-    topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
-    directed_nmi, directed_ami, directed_ari = topic_community_correlation(metis_partition, topic_diffusion)
-    print('directed_NMI:', directed_nmi)
-    print('directed_AMI:', directed_ami)
-    print('directed_ARI:', directed_ari)
-
-    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
-    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(metis_partition, topic_diffusion)
-    print('undirected_NMI:', undirected_nmi)
-    print('undirected_AMI:', undirected_ami)
-    print('undirected_ARI:', undirected_ari)
-    metis_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
-
-    print('-------------- rsc_partition ------------------')
-
-    dG = G.to_undirected()
-    Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
-    G_Giant = dG.subgraph(Gcc[0])
-    rsc_partition = partition_spectral(G_Giant)
-    nx.set_node_attributes(G_copy, rsc_partition, 'rsc_partition')
-
-    topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
-    directed_nmi, directed_ami, directed_ari = topic_community_correlation(rsc_partition, topic_diffusion)
-    print('directed_NMI:', directed_nmi)
-    print('directed_AMI:', directed_ami)
-    print('directed_ARI:', directed_ari)
-
-    topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
-    undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(rsc_partition, topic_diffusion)
-    print('undirected_NMI:', undirected_nmi)
-    print('undirected_AMI:', undirected_ami)
-    print('undirected_ARI:', undirected_ari)
-    rsc_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    # print('-------------- metis_partition ------------------')
+    # dG = G.to_undirected()
+    # Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
+    # G_Giant = dG.subgraph(Gcc[0])
+    # metis_partition = partition_metis(G_Giant)
+    # nx.set_node_attributes(G_copy, metis_partition, 'metis_partition')
+    #
+    # topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
+    # directed_nmi, directed_ami, directed_ari = topic_community_correlation(metis_partition, topic_diffusion)
+    # print('directed_NMI:', directed_nmi)
+    # print('directed_AMI:', directed_ami)
+    # print('directed_ARI:', directed_ari)
+    #
+    # topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    # undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(metis_partition, topic_diffusion)
+    # print('undirected_NMI:', undirected_nmi)
+    # print('undirected_AMI:', undirected_ami)
+    # print('undirected_ARI:', undirected_ari)
+    # metis_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
+    #
+    # print('-------------- rsc_partition ------------------')
+    #
+    # dG = G.to_undirected()
+    # Gcc = sorted(nx.connected_components(dG), key=len, reverse=True)
+    # G_Giant = dG.subgraph(Gcc[0])
+    # rsc_partition = partition_spectral(G_Giant)
+    # nx.set_node_attributes(G_copy, rsc_partition, 'rsc_partition')
+    #
+    # topic_diffusion = nx.get_node_attributes(G_copy, 'directed_out_edges_weighted')
+    # directed_nmi, directed_ami, directed_ari = topic_community_correlation(rsc_partition, topic_diffusion)
+    # print('directed_NMI:', directed_nmi)
+    # print('directed_AMI:', directed_ami)
+    # print('directed_ARI:', directed_ari)
+    #
+    # topic_diffusion = nx.get_node_attributes(G_copy, 'undirected_weighted')
+    # undirected_nmi, undirected_ami, undirected_ari = topic_community_correlation(rsc_partition, topic_diffusion)
+    # print('undirected_NMI:', undirected_nmi)
+    # print('undirected_AMI:', undirected_ami)
+    # print('undirected_ARI:', undirected_ari)
+    # rsc_scores = [directed_nmi, directed_ami, directed_ari, undirected_nmi, undirected_ami, undirected_ari]
 
     if export_results:
         export_path = Path('output/') / graph_name
@@ -398,9 +487,9 @@ def topic_propagation(network_name, G, tweets, network_type='retweet', topic_tre
         # export_topic_tweet_csv(graph_name, graph_tweets, min_words, probs, topics, num_topics, get_tweet_username,
         #                        path=export_path)
 
-    return louvain_scores + metis_scores + rsc_scores
-    # return louvain_scores
+    # return louvain_scores + metis_scores + rsc_scores
+    return louvain_scores
 
 
 if __name__ == "__main__":
-    topic_propagation()
+    pass

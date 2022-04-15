@@ -30,7 +30,8 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks, verbos=False):
         left_right = 0
         right_right = 0
 
-        random_walk_iterations = range(n_walks) if not verbos else tqdm(range(n_walks), desc='random walk', total=n_walks)
+        random_walk_iterations = range(n_walks) if not verbos else tqdm(range(n_walks), desc='random walk',
+                                                                        total=n_walks)
         for _ in random_walk_iterations:
 
             starting_side = random.choice(["left", "right"])
@@ -57,11 +58,18 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks, verbos=False):
             else:
                 print("Error!")
 
-        e1 = (left_left) / (left_left + right_left)
-        e2 = (right_left) / (left_left + right_left)
-        e3 = (left_right) / (right_right + left_right)
-        e4 = (right_right) / (right_right + left_right)
-
+        if left_left + right_left != 0:
+            e1 = (left_left) / (left_left + right_left)
+            e2 = (right_left) / (left_left + right_left)
+        else:
+            e1 = 0
+            e2 = 0
+        if right_right + left_right != 0:
+            e3 = (left_right) / (right_right + left_right)
+            e4 = (right_right) / (right_right + left_right)
+        else:
+            e3 = 0
+            e4 = 0
         rwc = e1 * e4 - e2 * e3
         rwc_dist.append(rwc)
 
@@ -70,6 +78,7 @@ def random_walk_pol(G, ms, n_influencers, n_sim, n_walks, verbos=False):
     return rwc_ave
     # 1 max pol
     # 0 min pol
+
 
 def krackhardt_ratio_pol(G, ms, verbos=False):
     """Computes EI-Index Polarization"""
@@ -115,6 +124,7 @@ def extended_krackhardt_ratio_pol(G, ms, verbos=False):
     return -(B_aa + B_bb - B_ab - B_ba) / (B_aa + B_bb + B_ab + B_ba)
     # seperate cluster score -1 (max pol)
     # bipartaite graph score 1 (min pol)
+
 
 def betweenness_pol(G, ms, verbos=False):
     """Computes Betweenness Centrality Controversy Polarization"""
@@ -311,7 +321,6 @@ def _get_k_highest_degree_nodes(G, left_nodes, right_nodes, n_influencers):
     right_influencers = [node for (node, _) in right_node_degrees_sorted[:k_right]]
 
     return left_influencers, right_influencers
-
 
 
 def _perform_random_walk(G, left_influencers, right_influencers, starting_node):

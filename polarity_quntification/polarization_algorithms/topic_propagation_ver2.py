@@ -29,7 +29,8 @@ from polarity_quntification.polarization_algorithms.vocabulary_based_method_for_
     create_user_text_df, clean_text_r_code
 
 
-def topic_propagation_pol(G, tweets, get_tweet_username, verbos=False, graph_name='none', directed=True, topic_min_prob=0.0):
+def topic_propagation_pol(G, tweets, get_tweet_username, verbos=False, graph_name='none', directed=True,
+                          topic_min_prob=0.0, topic_method='lda', community_method='louvain', community_size_thresh=0.1):
     G_copy = G.copy()
     if not directed:
         G_copy = G_copy.to_undirected()
@@ -37,13 +38,16 @@ def topic_propagation_pol(G, tweets, get_tweet_username, verbos=False, graph_nam
     if not output_path.exists():
         os.makedirs(output_path)
 
-    # louvain_partition = community_louvain.best_partition(G_copy.to_undirected())
-    community_partition = algorithms.leiden(G_copy.to_undirected())
-    community_partition = {k: vs[0] for k, vs in community_partition.to_node_community_map().items()}
+    if community_method == 'louvain':
+        community_partition = community_louvain.best_partition(G_copy.to_undirected())
+    elif community_method == 'leiden':
+        community_partition = algorithms.leiden(G_copy.to_undirected())
+        community_partition = {k: vs[0] for k, vs in community_partition.to_node_community_map().items()}
     N = len(G_copy.nodes())
-    largest_communities = [c for c, size in Counter(community_partition.values()).items() if size > N * 0.1]
+    largest_communities = [c for c, size in Counter(community_partition.values()).items() if size > N * community_size_thresh]
     print('number of large communities:', len(largest_communities))
     user_text = create_user_text_df(get_tweet_username, community_partition, tweets)
+
     user_text['text_clean'] = clean_text_r_code(user_text['text'])
 
     tknzr = TweetTokenizer()
@@ -51,25 +55,26 @@ def topic_propagation_pol(G, tweets, get_tweet_username, verbos=False, graph_nam
     text_dict = Dictionary(tweet_tokens)
     tweets_bow = [text_dict.doc2bow(tweet) for tweet in tweet_tokens]
 
-    lda_path = output_path / 'lda_models/'
-    if not lda_path.exists():
-        os.makedirs(lda_path)
-
     num_topics = max(len(largest_communities), 2)
-    lda_model_name = lda_path / f'lda{num_topics}-{graph_name}.model'
-    if lda_model_name.exists():
-        lda_model = LdaModel.load(str(lda_model_name))
-    else:
-        lda_model = LdaMulticore(corpus=tweets_bow,
-                                 id2word=text_dict,
-                                 num_topics=num_topics,
-                                 random_state=1,
-                                 passes=10,
-                                 workers=3)
+    if topic_method == 'lda':
+        lda_path = output_path / 'lda_models/'
+        if not lda_path.exists():
+            os.makedirs(lda_path)
+        lda_model_name = lda_path / f'lda{num_topics}-{graph_name}.model'
 
-        # lda_model.save(str(lda_model_name))
+        if lda_model_name.exists():
+            lda_model = LdaModel.load(str(lda_model_name))
+        else:
+            lda_model = LdaMulticore(corpus=tweets_bow,
+                                     id2word=text_dict,
+                                     num_topics=num_topics,
+                                     random_state=1,
+                                     passes=10,
+                                     workers=3)
 
-    tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
+            # lda_model.save(str(lda_model_name))
+
+        tweet_topic_probs = lda_model.get_document_topics(tweets_bow)
 
     topic_prob_rows = [max(tweet_topic_prob, key=lambda x: x[1]) for tweet_topic_prob in tweet_topic_probs]
     topic_prob_df = pd.DataFrame(topic_prob_rows, columns=['topic', 'prob'])
@@ -79,9 +84,7 @@ def topic_propagation_pol(G, tweets, get_tweet_username, verbos=False, graph_nam
     topic_diffusion = label_propagation(G_copy, user_to_topic, tol=10 ** -5)
 
     directed_nmi, directed_ami, directed_ari = topic_community_correlation(community_partition, topic_diffusion)
-    print('directed_NMI:' if directed else 'undirected_NMI', directed_nmi)
-    print('directed_AMI:' if directed else 'undirected_AMI', directed_ami)
-    print('directed_ARI:' if directed else 'undirected_ARI', directed_ari)
+    # net_type = 'directed:' if directed else 'undirected'
     return [directed_nmi, directed_ami, directed_ari]
 
 

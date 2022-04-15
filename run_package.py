@@ -35,8 +35,9 @@ def get_average_degree(dG):
     return average_degree
 
 
-def compute_polarization(dG):
-    G = get_giant_component(dG)
+def compute_polarization(dG, *args, **kwargs):
+    G = nx.to_undirected(dG)
+    G = get_giant_component(G)
 
     ms_rsc = pa.partition_spectral(G)
     T_rsc = [node for node in ms_rsc if ms_rsc[node] == 0]
@@ -135,7 +136,7 @@ def run_contrevercy_method_experiment(network_path, tweet_path, output_path, sco
                     get_tweet_username = lambda t: t['screen_name']
 
                 # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
-                vmqc_score = semantic_polarity_score(G, tweets, get_tweet_username, verbos=False, graph_name=graph_name)
+                vmqc_score = semantic_polarity_score(G, tweets, get_tweet_username, verbos=False, graph_name=graph_name, network_name=graph_name)
                 if isinstance(vmqc_score, list):
                     row = [graph_name] + vmqc_score
                 else:
@@ -146,9 +147,47 @@ def run_contrevercy_method_experiment(network_path, tweet_path, output_path, sco
                     pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
 
+def run_contrevercy_method_experiment_reddit(submissions_path, output_path, score_name, semantic_polarity_score,
+                                             graph_read_fn):
+    if isinstance(score_name, list):
+        cols = ['graph_name'] + score_name
+    else:
+        cols = ['graph_name', score_name]
+    if output_path.exists():
+        processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
+    else:
+        processed_graphs = []
+    graphs_n = len(list((submissions_path / 'comments').iterdir())) - len(processed_graphs)
+    for comments_dir in tqdm((submissions_path / 'comments').iterdir(), desc='process graphs', total=graphs_n):
+        graph_name = comments_dir
+        if graph_name not in processed_graphs:
+            print(graph_name)
+            # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',', create_using=nx.DiGraph)
+            G = graph_read_fn(comments_dir / 'interaction_graph.gml')
+            G.graph['edge_weight_attr'] = 'weight'
+            edge_weight = nx.get_edge_attributes(G, 'weight')
+            nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
+
+            # tweets = read_tweets_from_file(tweet_path / f'{graph_name}.txt', filter_retweets=False)
+            tweets = [t._asdict() for t in pd.read_csv(comments_dir / f'comments.csv').itertuples(index=False)]
+
+            get_tweet_username = lambda t: t['author']
+
+            # louvain_scores , metis_scores , rsc_scores = topic_propagation(graph_name, G, tweets, network_type='retweet')
+            vmqc_score = semantic_polarity_score(G, tweets, get_tweet_username, network_name=graph_name, verbos=False, graph_name=graph_name, )
+            if isinstance(vmqc_score, list):
+                row = [graph_name] + vmqc_score
+            else:
+                row = [graph_name, vmqc_score]
+            if output_path.exists():
+                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
+            else:
+                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
+
+
 if __name__ == "__main__":
     freeze_support()
-    dataset_type = 'juan'
+    dataset_type = 'kiran'
     export_results = True
     filter_retweets = True
     if dataset_type == 'kiran':
@@ -158,7 +197,7 @@ if __name__ == "__main__":
         graph_read_fn = partial(nx.read_weighted_edgelist, delimiter=',', create_using=nx.DiGraph)
         read_tweet_fn = partial(read_tweets_from_file, filter_retweets=filter_retweets)
         tweets_file_name_suffix = '.txt'
-    else:
+    elif dataset_type == 'juan':
         network_path = Path('data/juan_gml/')
         suffix = '_r.gml'
         prefix = ''
@@ -166,34 +205,57 @@ if __name__ == "__main__":
         tweets_file_name_suffix = '_tweets.json'
         graph_read_fn = partial(nx.read_gml, label='name')
 
-    # output_path = Path(f'structural_polarity_quantification_scores_{dataset_type}_dataset.csv')
-    # cols = ['graph_name', 'rwc_metis', 'arwc_metis', 'ebc_metis', 'gmck_metis', 'mblb_metis', 'mod_metis', 'ei_metis',
-    #        'extei_metis', 'cond_metis', 'rwc_rsc', 'arwc_rsc', 'ebc_rsc', 'gmck_rsc', 'mblb_rsc', 'mod_rsc', 'ei_rsc',
-    #        'extei_rsc', 'cond_rsc', 'size', 'ave_deg']
+    ######### reddit dataset ################
+    # reddit_suffix = 'MadeMeSmile_01-03-2022_23-03-2022'
+    # reddit_path = Path('data/') / reddit_suffix
+    # reddit_graph_read_fn = nx.read_gml
+    #
+    # output_path = Path(f'structural_polarity_quantification_scores_reddit_mademesmile_dataset.csv')
+    # cols = ['rwc_metis', 'arwc_metis', 'ebc_metis', 'gmck_metis', 'mblb_metis', 'mod_metis', 'ei_metis',
+    #         'extei_metis', 'cond_metis', 'rwc_rsc', 'arwc_rsc', 'ebc_rsc', 'gmck_rsc', 'mblb_rsc', 'mod_rsc', 'ei_rsc',
+    #         'extei_rsc', 'cond_rsc', 'size', 'ave_deg']
     #
     # if output_path.exists():
-    #    processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
+    #     processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
     # else:
-    #    processed_graphs = []
+    #     processed_graphs = []
+    # run_contrevercy_method_experiment_reddit(reddit_path, output_path, cols, compute_polarization, reddit_graph_read_fn)
+    #
+    # output_path = Path(f'topic_propagation_scores_reddit_mademesmile_dataset.csv')
+    # base_score_names = ['directed_NMI', 'directed_AMI', 'directed_ARI', 'undirected_NMI', 'undirected_AMI',
+    #                     'undirected_ARI']
+    # run_contrevercy_method_experiment_reddit(reddit_path, output_path, base_score_names, topic_propagation,
+    #                                          reddit_graph_read_fn)
+
+    ########################### stractural methods #################################
+    # output_path = Path(f'structural_polarity_quantification_scores_{dataset_type}_dataset.csv')
+    # cols = ['graph_name', 'rwc_metis', 'arwc_metis', 'ebc_metis', 'gmck_metis', 'mblb_metis', 'mod_metis', 'ei_metis',
+    #         'extei_metis', 'cond_metis', 'rwc_rsc', 'arwc_rsc', 'ebc_rsc', 'gmck_rsc', 'mblb_rsc', 'mod_rsc', 'ei_rsc',
+    #         'extei_rsc', 'cond_rsc', 'size', 'ave_deg']
+    #
+    # if output_path.exists():
+    #     processed_graphs = pd.read_csv(output_path)['graph_name'].tolist()
+    # else:
+    #     processed_graphs = []
     #
     # graphs_n = len(list(network_path.iterdir())) - len(processed_graphs)
     # for edgelist_file in tqdm(network_path.iterdir(), desc='process graphs', total=graphs_n):
-    #    if edgelist_file.name.endswith(suffix):
-    #        graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
-    #        if graph_name not in processed_graphs:
-    #            print(graph_name)
-    #            # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',')
-    #            G = graph_read_fn(edgelist_file)
-    #            G = G.to_undirected()
-    #            G.graph['edge_weight_attr'] = 'weight'
-    #            edge_weight = nx.get_edge_attributes(G, 'weight')
-    #            nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
+    #     if edgelist_file.name.endswith(suffix):
+    #         graph_name = edgelist_file.name.replace(suffix, '').replace(prefix, '')
+    #         if graph_name not in processed_graphs:
+    #             print(graph_name)
+    #             # G = nx.read_weighted_edgelist(edgelist_file, delimiter=',')
+    #             G = graph_read_fn(edgelist_file)
+    #             G = G.to_undirected()
+    #             G.graph['edge_weight_attr'] = 'weight'
+    #             edge_weight = nx.get_edge_attributes(G, 'weight')
+    #             nx.set_edge_attributes(G, {k: int(v) for k, v in edge_weight.items()}, 'weight')
     #
-    #            row = [graph_name] + compute_polarization(G)
-    #            if output_path.exists():
-    #                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
-    #            else:
-    #                pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
+    #             row = [graph_name] + compute_polarization(G)
+    #             if output_path.exists():
+    #                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False, header=False, mode='a')
+    #             else:
+    #                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
     ################################# topic propagation #########################################
     # topic_treshold = 0.0
@@ -238,26 +300,26 @@ if __name__ == "__main__":
     #                 pd.DataFrame([row], columns=cols).to_csv(output_path, index=False)
 
     ##################################3 VMQC method #########################################
-    tweet_path = Path('data/full_tweets/')
+    # tweet_path = Path('data/full_tweets/')
     # output_path = Path(
     #     f'VMQC_method_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
     #
     # run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'VMQC_score', vmqc_pol)
-
+    #
     # output_path = Path(
     #     f'semantic_distance_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_run2.csv')
     #
     # run_contrevercy_method_experiment(network_path, tweet_path, output_path, 'semantic_distance', semantic_distance_pol)
 
-    topic_min_prob = 0.7
-    output_path = Path(
-        f'directed_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
-    directed_topic_propagation_pol = partial(topic_propagation_pol, directed=True, topic_min_prob=topic_min_prob)
-    run_contrevercy_method_experiment(network_path, tweet_path, output_path, ['directed_NMI', 'directed_AMI', 'directed_ARI'], directed_topic_propagation_pol)
-
-    output_path = Path(
-        f'undirected_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
-
-    undirected_topic_propagation_pol = partial(topic_propagation_pol, directed=False, topic_min_prob=topic_min_prob)
-    run_contrevercy_method_experiment(network_path, tweet_path, output_path,
-                                      ['undirected_NMI', 'undirected_AMI', 'undirected_ARI'], undirected_topic_propagation_pol)
+    # topic_min_prob = 0.7
+    # output_path = Path(
+    #     f'directed_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
+    # directed_topic_propagation_pol = partial(topic_propagation_pol, directed=True, topic_min_prob=topic_min_prob)
+    # run_contrevercy_method_experiment(network_path, tweet_path, output_path, ['directed_NMI', 'directed_AMI', 'directed_ARI'], directed_topic_propagation_pol)
+    #
+    # output_path = Path(
+    #     f'undirected_leiden_topic_propagation_scores_{dataset_type}_dataset{"" if filter_retweets else "_with_retweets"}_minprob{topic_min_prob}_run2.csv')
+    #
+    # undirected_topic_propagation_pol = partial(topic_propagation_pol, directed=False, topic_min_prob=topic_min_prob)
+    # run_contrevercy_method_experiment(network_path, tweet_path, output_path,
+    #                                   ['undirected_NMI', 'undirected_AMI', 'undirected_ARI'], undirected_topic_propagation_pol)
